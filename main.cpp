@@ -35,7 +35,8 @@ auto test_pipe_with_on_exc() {
                return x * 2;
              }
            }) |
-           then([](auto) -> int { throw 12; }) | catch_exc([](std::exception_ptr exc) noexcept(NoExcSpec) {
+           then([](auto) -> int { throw 12; }) |
+           catch_exc([](std::exception_ptr exc) noexcept(NoExcSpec) {
              try {
                rethrow_exception(exc);
              } catch (int x) {
@@ -63,23 +64,39 @@ struct recv {
   }
 };
 
+struct recv_noexcept {
+  template <typename T>
+  void set_value(T&& v) noexcept {
+    std::cout << "Value: " << v << "\n";
+  }
+};
+
+auto test_non_catch_exc_after_non_throwing_is_noop() {
+  auto s = just_value(42) | catch_exc([](std::exception_ptr exc) -> int { throw 12; });
+  static_assert(is_noexcept_sender_v<decltype(s)>);
+  return s;
+}
+
 struct strlen_recv {
   void set_value(std::string s) noexcept { std::cout << "strlen = " << s.length() << "\n"; }
 };
 
 template <typename Rec, typename Sender>
-void run(Sender&& sender) {
+void run(Sender&& sender) noexcept {
   auto op = connect((Sender &&) sender, Rec{});
   exe::start(op);
 }
 
 int main() {
   static_assert(!is_next_sender_noexcept_v<recv>);
-  run<recv>(test_just_value());
-  run<recv>(test_pipe_just_value_to_then());
+  run<recv_noexcept>(test_just_value());
+  run<recv_noexcept>(test_pipe_just_value_to_then());
   run<recv>(test_pipe_just_value_to_then_str());
-  run<recv>(test_pipe_with_on_exc<false>());
-  run<recv>(test_pipe_with_on_exc<true>());
+  run<recv_noexcept>(test_pipe_with_on_exc<false>());
+  run<recv_noexcept>(test_pipe_with_on_exc<true>());
+  run<recv>(just_value(42) | then([](auto) -> int { throw 13; }));
+
+  run<recv_noexcept>(test_non_catch_exc_after_non_throwing_is_noop());
 
 #if 0
   run<strlen_recv>(test_just_value());
