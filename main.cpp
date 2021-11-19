@@ -1,5 +1,7 @@
 #include <iostream>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 
 namespace exe {
 namespace detail {
@@ -40,6 +42,30 @@ std::true_type has_set_error_exc_ptr(int);
 
 template <typename Rec>
 std::false_type has_set_error_exc_ptr(...);
+
+template <template <class, class...> typename T, typename... Tail>
+struct bind_construct_impl {
+  using tail_t = std::tuple<std::decay_t<Tail>...>;
+
+  template <typename S>
+  auto operator()(S&& s) noexcept(
+      noexcept(this->invoke((S &&) s, std::make_index_sequence<sizeof...(Tail)>{}))) {
+    return invoke((S &&) s, std::make_index_sequence<sizeof...(Tail)>{});
+  }
+
+  template <typename S, size_t... Idx>
+  auto invoke(S&& s, std::index_sequence<Idx...>) noexcept(noexcept(T<S, std::decay_t<Tail>...>{
+      (S &&) s, std::get<Idx>(std::declval<tail_t&&>())...})) {
+    return T<S, std::decay_t<Tail>...>{(S &&) s, std::get<Idx>(std::move(tail))...};
+  }
+
+  std::tuple<std::decay_t<Tail>...> tail;
+};
+
+template <template <class, class...> typename T, typename... Tail>
+auto bind_construct(Tail&&... ts) noexcept {
+  return bind_construct_impl<T, Tail...>{{(Tail &&) ts...}};
+}
 
 }  // namespace detail
 
@@ -262,9 +288,25 @@ struct then_sender {
   Callback fn;
 };
 
+template <typename Callback>
+auto then(Callback&& fn) noexcept {
+  return detail::bind_construct<then_sender>((Callback &&) fn);
+}
+
+inline auto capture_exc() noexcept { return detail::bind_construct<capture_exc_sender>(); }
+
+template <typename Sender, typename Rec, typename = std::enable_if_t<is_sender_v<Sender>>>
+auto operator|(Sender&& sender, Rec&& rec) noexcept(noexcept(((Rec &&) rec)((Sender &&) sender))) {
+  return ((Rec &&) rec)((Sender &&) sender);
+}
+
 }  // namespace exe
 
+using namespace exe;
+
 int main() {
+  auto s = just_value("Hello world");
+
   std::cout << exe::just_value("Hello, World!").v << std::endl;
   return 0;
 }
