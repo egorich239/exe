@@ -7,6 +7,12 @@ template <typename... Ts>
 struct type_list {
   template <template <typename> class P>
   using any_t = std::conjunction<P<Ts>...>;
+
+  template <typename Fn>
+  using invoke_result_t = std::invoke_result_t<Fn&&, Ts&&...>;
+
+  template <typename Fn>
+  using is_nothrow_invocable_t = std::is_nothrow_invocable<Fn&&, Ts&&...>;
 };
 
 template <typename S, typename U = S, typename = typename U::sender_tag>
@@ -201,6 +207,57 @@ auto just_value(T&& v) noexcept(std::is_nothrow_move_constructible_v<std::decay_
   using D = std::decay_t<T>;
   return just_value_sender<D>{(D &&) v};
 }
+
+template <typename InputSender, typename Callback>
+struct then_sender;
+template <typename InputSender, typename Callback, typename OutputRec>
+struct then_rec;
+template <typename InputSender, typename Callback, typename OutputRec>
+struct then_op;
+
+template <typename InputSender, typename Callback, typename OutputRec>
+struct then_rec {
+  using next_sender = then_sender<InputSender, Callback>;
+
+  template <typename T>
+  void set_value(T&& v) noexcept(noexcept(set_value(std::declval<OutputRec&&>(),
+                                                    (std::declval<Callback&&>())((T &&) v)))) {
+    set_value((OutputRec &&) op.rec, ((Callback &&) op.fn)((T &&) v));
+  }
+
+  then_op<InputSender, Callback, OutputRec>& op;
+};
+
+template <typename InputSender, typename Callback, typename OutputRec>
+struct then_op {
+  using input_op_t = connect_t<InputSender, then_rec<InputSender, Callback, OutputRec>>;
+
+  explicit then_op(InputSender&& sender, Callback&& fn, OutputRec&& rec) noexcept
+      : op{connect((InputSender &&) sender, then_rec<InputSender, Callback, OutputRec>{*this})},
+        fn{(Callback &&) fn},
+        rec{(OutputRec &&) rec} {}
+  then_op(then_op&&) = delete;
+  then_op(const then_op&) = delete;
+
+  void start() noexcept(noexcept(start((input_op_t &&) op))) { start((input_op_t &&) op); }
+
+  input_op_t op;
+  Callback fn;
+  OutputRec rec;
+};
+
+template <typename InputSender, typename Callback>
+struct then_sender {
+  using sender_tag = void;
+
+  using value_type = typename InputSender::value_types::template invoke_result_t<Callback>;
+  using error_type = detail::throws_if<(
+      !is_noexcept_sender_v<InputSender> ||
+      InputSender::value_types::template is_nothrow_invocable_t<Callback>::value)>;
+
+  InputSender input;
+  Callback fn;
+};
 
 }  // namespace exe
 
