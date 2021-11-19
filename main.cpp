@@ -26,22 +26,23 @@ auto test_pipe_just_value_to_then_str() {
   return s;
 }
 
+template <bool NoExcSpec>
 auto test_pipe_with_on_exc() {
-  auto s = just_value(42) | catch_exc([](auto&& rec, std::exception_ptr exc) noexcept {
+  auto s = just_value(42) | catch_exc([](std::exception_ptr exc) noexcept {
              try {
                rethrow_exception(exc);
              } catch (int x) {
-               exe::set_value(std::move(rec), x * 2);
+               return x * 2;
              }
            }) |
-           then([](auto) -> int { throw 12; }) |
-           catch_exc([](auto&& rec, std::exception_ptr exc) noexcept {
+           then([](auto) -> int { throw 12; }) | catch_exc([](std::exception_ptr exc) noexcept(NoExcSpec) {
              try {
                rethrow_exception(exc);
              } catch (int x) {
-               exe::set_value(std::move(rec), x * 3);
+               return x * 3;
              }
            });
+  static_assert(is_noexcept_sender_v<decltype(s)> == NoExcSpec);
   return s;
 }
 
@@ -77,8 +78,11 @@ int main() {
   run<recv>(test_just_value());
   run<recv>(test_pipe_just_value_to_then());
   run<recv>(test_pipe_just_value_to_then_str());
-  run<recv>(test_pipe_with_on_exc());
+  run<recv>(test_pipe_with_on_exc<false>());
+  run<recv>(test_pipe_with_on_exc<true>());
 
+#if 0
   run<strlen_recv>(test_just_value());
+#endif
   return 0;
 }

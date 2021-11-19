@@ -246,8 +246,8 @@ struct then_rec {
   using next_sender = then_sender<InputSender, Callback>;
 
   template <typename T>
-  void set_value(T&& v) noexcept(noexcept(set_value(std::declval<OutputRec&&>(),
-                                                    (std::declval<Callback&&>())((T &&) v)))) {
+  void set_value(T&& v) noexcept(noexcept(exe::set_value(std::declval<OutputRec&&>(),
+                                                         (std::declval<Callback&&>())((T &&) v)))) {
     exe::set_value((OutputRec &&) op.rec, ((Callback &&) op.fn)((T &&) v));
   }
 
@@ -319,8 +319,8 @@ struct catch_exc_rec {
 
   template <typename U = void, typename = std::enable_if_t<!is_noexcept_sender_v<InputSender>, U>>
   void set_error(std::exception_ptr exc) noexcept(
-      noexcept(std::declval<Callback&&>()(std::declval<OutputRec&&>(), std::move(exc)))) {
-    ((Callback &&) op.fn)((OutputRec &&) op.rec, std::move(exc));
+      noexcept(exe::set_value(std::declval<OutputRec&&>(), (std::declval<Callback&&>())(exc)))) {
+    exe::set_value(((OutputRec &&) op.rec), ((Callback &&) op.fn)(exc));
   }
 
   catch_exc_op<InputSender, Callback, OutputRec>& op;
@@ -350,7 +350,9 @@ struct catch_exc_sender {
   using sender_tag = void;
 
   using value_types = typename InputSender::value_types;
-  using error_types = detail::throws_if<!is_noexcept_sender_v<InputSender>>;
+  using error_types =
+      detail::throws_if<!is_noexcept_sender_v<InputSender> &&
+                        !std::is_nothrow_invocable_v<Callback&&, std::exception_ptr>>;
 
   template <typename Rec>
   auto connect(Rec&& rec) noexcept(
