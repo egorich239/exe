@@ -88,7 +88,6 @@ void run(Sender&& sender) noexcept {
 }
 
 int main() {
-  static_assert(!is_next_sender_noexcept_v<recv>);
   run<recv_noexcept>(test_just_value());
   run<recv_noexcept>(test_pipe_just_value_to_then());
   run<recv>(test_pipe_just_value_to_then_str());

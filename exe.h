@@ -81,16 +81,6 @@ template <typename S>
 constexpr auto is_noexcept_sender_v =
     is_sender_v<S> && !sender_error_types_t<S>::template any_t<detail::is_exception_ptr_t>::value;
 
-namespace detail {
-template <typename Rec, typename U = typename Rec::next_sender>
-auto is_next_sender_noexcept(int) -> std::bool_constant<is_noexcept_sender_v<U>>;
-template <typename Rec>
-std::false_type is_next_sender_noexcept(...);
-}  // namespace detail
-
-template <typename Rec>
-constexpr auto is_next_sender_noexcept_v = decltype(detail::is_next_sender_noexcept<Rec>(0))::value;
-
 template <typename Rec>
 constexpr auto has_set_error_exc_ptr_v = decltype(detail::has_set_error_exc_ptr<Rec>(0))::value;
 
@@ -139,8 +129,6 @@ struct capture_exc_op;
 
 template <typename InputSender, typename OutputRec>
 struct capture_exc_rec {
-  using next_sender = capture_exc_sender<InputSender>;
-
   template <typename T>
   void set_value(T&& v) noexcept(noexcept(std::declval<OutputRec&&>().set_value((T &&) v))) {
     ((OutputRec &&) op.output).set_value((T &&) v);
@@ -243,8 +231,6 @@ struct then_op;
 
 template <typename InputSender, typename Callback, typename OutputRec>
 struct then_rec {
-  using next_sender = then_sender<InputSender, Callback>;
-
   template <typename T>
   void set_value(T&& v) noexcept(noexcept(exe::set_value(std::declval<OutputRec&&>(),
                                                          (std::declval<Callback&&>())((T &&) v)))) {
@@ -309,8 +295,6 @@ struct catch_exc_op;
 
 template <typename InputSender, typename Callback, typename OutputRec>
 struct catch_exc_rec {
-  using next_sender = catch_exc_sender<InputSender, Callback>;
-
   template <typename T>
   void set_value(T&& v) noexcept(noexcept(exe::set_value(std::declval<OutputRec&&>(),
                                                          std::declval<T&&>()))) {
