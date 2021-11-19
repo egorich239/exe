@@ -179,6 +179,9 @@ struct capture_exc_sender {
 
 template <typename Rec, typename T>
 struct just_value_op {
+  just_value_op(const just_value_op&) = delete;
+  just_value_op(just_value_op&&) = delete;
+
   void start() noexcept(noexcept(set_value(std::declval<Rec&&>(), std::declval<T&&>()))) {
     set_value((Rec &&) rec, (T &&) v);
   }
