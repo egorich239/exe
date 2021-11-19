@@ -26,6 +26,25 @@ auto test_pipe_just_value_to_then_str() {
   return s;
 }
 
+auto test_pipe_with_on_exc() {
+  auto s = just_value(42) | catch_exc([](auto&& rec, std::exception_ptr exc) noexcept {
+             try {
+               rethrow_exception(exc);
+             } catch (int x) {
+               exe::set_value(std::move(rec), x * 2);
+             }
+           }) |
+           then([](auto) -> int { throw 12; }) |
+           catch_exc([](auto&& rec, std::exception_ptr exc) noexcept {
+             try {
+               rethrow_exception(exc);
+             } catch (int x) {
+               exe::set_value(std::move(rec), x * 3);
+             }
+           });
+  return s;
+}
+
 struct recv {
   template <typename T>
   void set_value(T&& v) noexcept {
@@ -37,6 +56,8 @@ struct recv {
       rethrow_exception(exc);
     } catch (std::exception& e) {
       std::cout << "Exc: " << e.what() << "\n";
+    } catch (int x) {
+      std::cout << "Exc: " << x << "\n";
     }
   }
 };
@@ -52,9 +73,11 @@ void run(Sender&& sender) {
 }
 
 int main() {
+  static_assert(!is_next_sender_noexcept_v<recv>);
   run<recv>(test_just_value());
   run<recv>(test_pipe_just_value_to_then());
   run<recv>(test_pipe_just_value_to_then_str());
+  run<recv>(test_pipe_with_on_exc());
 
   run<strlen_recv>(test_just_value());
   return 0;

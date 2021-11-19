@@ -96,10 +96,6 @@ constexpr auto has_set_error_exc_ptr_v = decltype(detail::has_set_error_exc_ptr<
 
 template <typename Rec, typename T>
 void set_value(Rec&& rec, T&& v) noexcept(noexcept(((Rec &&) rec).set_value((T &&) v))) {
-  static_assert(!is_next_sender_noexcept_v<detail::remove_cvref_t<Rec>> ||
-                    noexcept(((Rec &&) rec).set_value((T &&) v)),
-                "Forwarding value to the noexcept sender `rec` might cause exceptions due to"
-                " implicit conversions involved.");
   ((Rec &&) rec).set_value((T &&) v);
 }
 
@@ -202,6 +198,7 @@ struct capture_exc_sender {
 
   InputSender input;
 };
+inline auto capture_exc() noexcept { return detail::bind_construct<capture_exc_sender>(); }
 
 template <typename Rec, typename T>
 struct just_value_op {
@@ -303,7 +300,74 @@ auto then(Callback&& fn) noexcept {
   return detail::bind_construct<then_sender>((Callback &&) fn);
 }
 
-inline auto capture_exc() noexcept { return detail::bind_construct<capture_exc_sender>(); }
+template <typename InputSender, typename Callback>
+struct catch_exc_sender;
+template <typename InputSender, typename Callback, typename OutputRec>
+struct catch_exc_rec;
+template <typename InputSender, typename Callback, typename OutputRec>
+struct catch_exc_op;
+
+template <typename InputSender, typename Callback, typename OutputRec>
+struct catch_exc_rec {
+  using next_sender = catch_exc_sender<InputSender, Callback>;
+
+  template <typename T>
+  void set_value(T&& v) noexcept(noexcept(exe::set_value(std::declval<OutputRec&&>(),
+                                                         std::declval<T&&>()))) {
+    exe::set_value(((OutputRec &&) op.rec), (T &&) v);
+  }
+
+  template <typename U = void, typename = std::enable_if_t<!is_noexcept_sender_v<InputSender>, U>>
+  void set_error(std::exception_ptr exc) noexcept(
+      noexcept(std::declval<Callback&&>()(std::declval<OutputRec&&>(), std::move(exc)))) {
+    ((Callback &&) op.fn)((OutputRec &&) op.rec, std::move(exc));
+  }
+
+  catch_exc_op<InputSender, Callback, OutputRec>& op;
+};
+
+template <typename InputSender, typename Callback, typename OutputRec>
+struct catch_exc_op {
+  using input_op_t = connect_t<InputSender, catch_exc_rec<InputSender, Callback, OutputRec>>;
+
+  explicit catch_exc_op(InputSender&& input, Callback&& fn, OutputRec&& rec) noexcept
+      : op{exe::connect((InputSender &&) input,
+                        catch_exc_rec<InputSender, Callback, OutputRec>{*this})},
+        fn((Callback &&) fn),
+        rec((OutputRec &&) rec) {}
+  catch_exc_op(catch_exc_op&&) = delete;
+  catch_exc_op(const catch_exc_op&) = delete;
+
+  void start() noexcept(noexcept(exe::start(std::declval<input_op_t>()))) { exe::start(op); }
+
+  input_op_t op;
+  Callback fn;
+  OutputRec rec;
+};
+
+template <typename InputSender, typename Callback>
+struct catch_exc_sender {
+  using sender_tag = void;
+
+  using value_types = typename InputSender::value_types;
+  using error_types = detail::throws_if<!is_noexcept_sender_v<InputSender>>;
+
+  template <typename Rec>
+  auto connect(Rec&& rec) noexcept(
+      std::is_nothrow_constructible_v<catch_exc_op<InputSender, Callback, Rec>, InputSender&&,
+                                      Callback&&, Rec&&>) {
+    return catch_exc_op<InputSender, Callback, Rec>{(InputSender &&) input, (Callback &&) fn,
+                                                    (Rec &&) rec};
+  }
+
+  InputSender input;
+  Callback fn;
+};
+
+template <typename Callback>
+auto catch_exc(Callback&& fn) noexcept {
+  return detail::bind_construct<catch_exc_sender>((Callback &&) fn);
+}
 
 template <typename Sender, typename Rec, typename = std::enable_if_t<is_sender_v<Sender>>>
 auto operator|(Sender&& sender, Rec&& rec) noexcept(noexcept(((Rec &&) rec)((Sender &&) sender))) {
