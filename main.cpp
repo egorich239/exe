@@ -71,7 +71,7 @@ struct recv_noexcept {
   }
 };
 
-auto test_non_catch_exc_after_non_throwing_is_noop() {
+auto test_catch_exc_after_non_throwing_is_noop() {
   auto s = just_value(42) | catch_exc([](std::exception_ptr exc) -> int { throw 12; });
   static_assert(is_noexcept_sender_v<decltype(s)>);
   return s;
@@ -95,10 +95,8 @@ int main() {
   run<recv_noexcept>(test_pipe_with_on_exc<true>());
   run<recv>(just_value(42) | then([](auto) -> int { throw 13; }));
 
-  run<recv_noexcept>(test_non_catch_exc_after_non_throwing_is_noop());
+  run<recv_noexcept>(test_catch_exc_after_non_throwing_is_noop());
 
-#if 0
   run<strlen_recv>(test_just_value());
-#endif
   return 0;
 }
