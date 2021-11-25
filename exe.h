@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -11,7 +12,7 @@ struct type_list {
   using any_t = std::disjunction<P<Ts>...>;
 
   template <typename Fn>
-  using invoke_result_t = std::invoke_result_t<Fn&&, Ts&&...>;
+  using invoke_result_t = type_list<std::invoke_result_t<Fn&&, Ts&&>...>;
 
   template <typename Fn>
   using is_nothrow_invocable_t = std::is_nothrow_invocable<Fn&&, Ts&&...>;
@@ -67,6 +68,14 @@ auto bind_construct(Tail&&... ts) noexcept {
   return bind_construct_impl<T, Tail...>{{(Tail &&) ts...}};
 }
 
+struct sender_single_value {
+  template <typename T>
+  static T dispatch_(type_list<T>);
+
+  template <typename Sender>
+  using type = decltype(dispatch_(std::declval<typename Sender::value_types>()));
+};
+
 }  // namespace detail
 
 /// A simplistic sender detector.
@@ -76,6 +85,9 @@ constexpr auto is_sender_v = decltype(detail::is_sender<S>(0))::value;
 /// Returns empty list for non-senders.
 template <typename S>
 using sender_error_types_t = decltype(detail::sender_error_types<S>(0));
+
+template <typename S>
+using sender_single_value_t = typename detail::sender_single_value::template type<S>;
 
 template <typename S>
 constexpr auto is_noexcept_sender_v =
@@ -359,5 +371,28 @@ template <typename Sender, typename Rec, typename = std::enable_if_t<is_sender_v
 auto operator|(Sender&& sender, Rec&& rec) noexcept(noexcept(((Rec &&) rec)((Sender &&) sender))) {
   return ((Rec &&) rec)((Sender &&) sender);
 }
+
+template <typename Sender>
+struct sync_await_rec {
+  using value_type = sender_single_value_t<Sender>;
+
+  void set_value(value_type&& v) noexcept(std::is_nothrow_move_constructible_v<value_type>) {
+    res = std::move(v);
+  }
+
+  std::optional<value_type>& res;
+};
+
+struct sync_await_fn {
+  template <typename Sender>
+  auto operator()(Sender&& sender) noexcept(is_noexcept_sender_v<Sender>) {
+    std::optional<sender_single_value_t<Sender>> res;
+    auto op = connect((Sender &&) sender, sync_await_rec<Sender>{res});
+    start(op);
+    return *std::move(res);
+  }
+};
+
+inline auto sync_await() { return sync_await_fn{}; }
 
 }  // namespace exe
